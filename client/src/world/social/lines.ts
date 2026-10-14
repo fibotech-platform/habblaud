@@ -20,6 +20,8 @@ export const INVITE = {
   rps: [tr('Jokenpô valendo 🪙{v}?'), tr('Aposto 🪙{v} no jokenpô!'), tr('Pedra, papel e tesoura? 🪙{v}!')],
   rpsHonor: [tr('Jokenpô? Só pela honra 😅'), tr('Jokenpô valendo nada?')],
   mirror: [tr('Bora dar um tapa no visual? 💄'), tr('Espelho? Preciso me arrumar ✨')],
+  warroom: [tr('Bora alinhar o próximo passo na war room?'), tr('Reunião rápida na war room? 📋'), tr('Vamos planejar a semana? 🗺️')],
+  warroomIncident: [tr('Incidente em {sala}! Todo mundo na war room 🚨'), tr('{sala} pegou fogo 🔥 War room, agora!'), tr('Alerta em {sala}! Bora pra war room 🚨')],
 } satisfies Record<string, Pool>;
 
 export const ACCEPT: Pool = [tr('Bora!'), tr('Partiu!'), 'Fechado! 🤝', tr('Só se for agora!'), tr('Opa!'), tr('Já é!'), tr('Demorou!')];
@@ -159,3 +161,31 @@ export function pick(pool: Pool, rng: () => number, vars: LineVars = {}, avoid?:
   }
   return fallback ?? pool.find((l) => !/\{\w+\}/.test(l)) ?? '…';
 }
+
+/** War room: reunião de incidente (`incident`) ou de planejamento (`plan`); `{sala}` = projeto em incidente. */
+export const WAR = {
+  incident: [
+    tr('Alguém já olhou o log?'),
+    tr('Qual foi o último deploy em {sala}?'),
+    tr('Reverte primeiro, investiga depois!'),
+    tr('Tá quebrando em produção ou só no CI?'),
+    tr('Eu pego o rollback 🙋'),
+    tr('Abri o painel de métricas 📈'),
+    tr('Parece o teste flaky de novo…'),
+    tr('Quem tá no plantão hoje?'),
+    tr('Achei! Foi o último merge 🔍'),
+    tr('Vou escrever o post-mortem 📝'),
+  ],
+  plan: [
+    tr('Prioridade número um: {sala}'),
+    tr('Isso cabe nesta sprint?'),
+    tr('Vamos quebrar em tarefas menores'),
+    tr('Quem pega o próximo item do quadro?'),
+    tr('Precisamos de mais testes aqui'),
+    tr('Bora votar: refatorar ou seguir?'),
+    tr('Anotei no quadro ✍️'),
+    tr('Dependência bloqueando? Me avisa'),
+  ],
+  react: [tr('Concordo!'), tr('Faz sentido 👍'), tr('Hmm… e se…'), tr('Fechado!'), tr('Boa ideia!'), tr('Deixa comigo')],
+  end: [tr('Resolvido! Bom trabalho, time 🙌'), tr('Fechado. Cada um na sua tarefa!'), tr('Reunião encerrada ✅'), tr('Bora executar!')],
+} satisfies Record<string, Pool>;

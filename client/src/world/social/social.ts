@@ -8,7 +8,7 @@ import type { Dir, HeldItem, Pose } from '../../art/api';
 import type { AgentSocial, SocialEvent } from '../api';
 import { mulberry32 } from '../../../../shared/hash';
 import { TILE } from '../constants';
-import { CAFE_ID, LOUNGE_ID, RECEPTION_ID, RESTROOM_ID } from '../layout/core';
+import { CAFE_ID, LIBRARY_ID, LOUNGE_ID, RECEPTION_ID, RESTROOM_ID, WARROOM_ID } from '../layout/core';
 import type { SpotDef } from '../layout/types';
 import { FREE } from '../path/grid';
 import { isLongIdle } from '../sim/behavior';
@@ -38,6 +38,7 @@ import {
 import * as L from './lines';
 import { bondBetween, hasTrait, personaFor, TRAITS, type Persona, type TraitId } from './persona';
 import { DELIVERY_REWARD, TURN_REWARD, Wallets, type StorageLike } from './wallet';
+import { areaSigns as signsFor, type GatheringView } from './signs';
 import { tr } from '../../../../shared/i18n';
 
 /** Texto flutuante sobre a cabeça ("+🪙10"), desenhado pelo overlay. */
@@ -55,6 +56,8 @@ export type { SocialEvent } from '../api';
 export const SHELL_SOCIAL_MIN_MS = 40_000;
 /** Quem não chega ao lugar da roda em tanto tempo desiste (a roda acontece sem ele ou não acontece). */
 const GATHER_TIMEOUT_MS = 35_000;
+/** A mesma sala só convoca a war room de novo depois disto. */
+const WAR_COOLDOWN_MS = 120_000;
 const SAY_MS = 2_600;
 const FLOATER_MS = 1_900;
 const MAX_FLOATERS = 24;
@@ -63,7 +66,7 @@ const COIN_COLOR = '#ffd34d';
 const LOSS_COLOR = '#ff8a8a';
 
 const KIND_LIST = Object.keys(KINDS) as GatherKind[];
-const PLACES: Readonly<Record<string, string>> = { [LOUNGE_ID]: tr('Lounge'), [CAFE_ID]: tr('Copa'), [RECEPTION_ID]: tr('Recepção'), [RESTROOM_ID]: tr('Banheiros') };
+const PLACES: Readonly<Record<string, string>> = { [LOUNGE_ID]: tr('Lounge'), [CAFE_ID]: tr('Copa'), [RECEPTION_ID]: tr('Recepção'), [RESTROOM_ID]: tr('Banheiros'), [WARROOM_ID]: tr('War Room'), [LIBRARY_ID]: tr('Biblioteca') };
 /** O que se perde/ganha em cada jogo (texto do extrato: "Perdeu no jokenpô para Rafaela"). */
 const MATCH_WHAT: Partial<Record<GatherKind, string>> = {
   rps: tr('no jokenpô'),
@@ -91,6 +94,8 @@ export class Social {
   private seq = 1;
   private eventSeq = 0;
   private nextSaveAt = 0;
+  /** Sala de projeto -> quando pode convocar a war room de novo. */
+  private readonly warCooldown = new Map<string, number>();
 
   constructor(
     private readonly sim: Sim,
@@ -179,7 +184,7 @@ export class Social {
     return g ? g.members.map((m) => this.sim.chars.get(m.id)?.info.name ?? m.id) : null;
   }
 
-  private start(kind: GatherKind, host: Character, cands: Character[], now: number, groupOnly: boolean, wantOverride?: number, forced = false): boolean {
+  private start(kind: GatherKind, host: Character, cands: Character[], now: number, groupOnly: boolean, wantOverride?: number, forced = false, incident: string | null = null): boolean {
     const info = KINDS[kind];
     const rng = host.rng;
     const hp = personaFor(host.info.seed);
@@ -187,6 +192,7 @@ export class Social {
     if (wantOverride !== undefined) want = wantOverride;
     else if (kind === 'tv') want = 1 + Math.floor(rng() * 3);
     else if (kind === 'kitchen') want = 1 + Math.floor(rng() * 2.4);
+    else if (kind === 'warroom') want = 1 + Math.floor(rng() * 3);
     else if (kind === 'mirror') want = groupOnly ? 1 : cands.some((c) => hasTrait(personaFor(c.info.seed), 'vaidade')) && rng() < 0.5 ? 1 : 0;
     else want = info.min - 1;
     // torcida já na largada, às vezes
@@ -223,6 +229,7 @@ export class Social {
       seed: (host.info.seed ^ Math.imul(id, 0x9e3779b1)) >>> 0,
       rng: mulberry32((host.info.seed ^ Math.imul(id, 0x85ebca6b)) >>> 0),
       program: kind === 'tv' ? pickProgram(rng, hp) : null,
+      incident,
       bet: 0,
       score: [0, 0],
       gestures: null,
@@ -240,7 +247,7 @@ export class Social {
     const everyone = [host, ...chosen];
     const nPlayers = info.match ? 2 : everyone.length;
     everyone.forEach((c, i) => {
-      const role: Role = info.match ? (i < nPlayers ? 'player' : 'watcher') : kind === 'kitchen' || kind === 'talk' ? 'talker' : 'player';
+      const role: Role = info.match ? (i < nPlayers ? 'player' : 'watcher') : kind === 'kitchen' || kind === 'talk' || kind === 'warroom' ? 'talker' : 'player';
       const spot = plan.seats[i] ?? null;
       const m = this.member(c, role, spot);
       if (!spot && role === 'watcher') m.tile = this.standNear(g, c) ?? undefined;
@@ -285,6 +292,11 @@ export class Social {
         break;
       case 'mirror':
         text = guests.length ? L.pick(L.INVITE.mirror, rng, vars) : null;
+        break;
+      case 'warroom':
+        text = g.incident
+          ? L.pick(L.INVITE.warroomIncident, rng, { ...vars, sala: this.sim.rooms.get(g.incident)?.info.name ?? tr('produção') })
+          : L.pick(L.INVITE.warroom, rng, vars);
         break;
       default:
         text = L.pick(L.INVITE[g.kind], rng, vars);
@@ -371,7 +383,7 @@ export class Social {
   private join(g: Gathering, ch: Character, now: number): boolean {
     const spot = this.openSpotFor(g, ch);
     if (spot === undefined) return false;
-    const role: Role = g.kind === 'kitchen' ? 'talker' : KINDS[g.kind].match ? 'watcher' : 'player';
+    const role: Role = g.kind === 'kitchen' || g.kind === 'warroom' ? 'talker' : KINDS[g.kind].match ? 'watcher' : 'player';
     const m = this.member(ch, role, spot);
     m.late = true;
     if (!spot) {
@@ -383,7 +395,7 @@ export class Social {
     if (g.phase === 'run') this.basePose(g, m, now);
     g.members.push(m);
     this.dispatch(g, m, ch, now);
-    const line = g.kind === 'tv' ? tr('Posso ver junto? 📺') : g.kind === 'kitchen' ? tr('Tem lugar pra mais um? ☕') : tr('Quem tá ganhando?');
+    const line = g.kind === 'tv' ? tr('Posso ver junto? 📺') : g.kind === 'kitchen' ? tr('Tem lugar pra mais um? ☕') : g.kind === 'warroom' ? tr('Cheguei! Qual é a situação?') : tr('Quem tá ganhando?');
     this.say(ch, line, now);
     return true;
   }
@@ -468,6 +480,15 @@ export class Social {
       }
       case 'kitchen':
         return this.kitchenSeats(n, free, ch.rng);
+      case 'warroom': {
+        // lados longos primeiro, alternando norte/sul (frente a frente), depois as cabeceiras
+        const seats = spots
+          .ofKind('war_seat')
+          .filter((s) => s.areaId === WARROOM_ID && free(s))
+          .sort((a, b) => (a.dir === 'left' || a.dir === 'right' ? 1 : 0) - (b.dir === 'left' || b.dir === 'right' ? 1 : 0) || a.tx - b.tx || a.ty - b.ty);
+        if (seats.length < n) return null;
+        return { seats: seats.slice(0, n), pool: seats };
+      }
       case 'mirror': {
         const sinks = spots.ofKind('sink').filter((s) => s.areaId === RESTROOM_ID && free(s)).sort((a, b) => a.tx - b.tx);
         if (n === 1) return sinks.length ? { seats: [sinks[Math.floor(ch.rng() * sinks.length)]], pool: [] } : null;
@@ -651,6 +672,7 @@ export class Social {
 
   /** Baixa frequência: limpa rodas encerradas e grava as carteiras. */
   housekeeping(now: number): void {
+    this.checkIncidents(now);
     for (const g of this.gatherings) if (g.phase === 'ended') this.gatherings.delete(g);
     if (now >= this.nextSaveAt) {
       this.nextSaveAt = now + 5_000;
@@ -706,6 +728,10 @@ export class Social {
         g.until = now + between(rng, 24_000, 45_000);
         g.nextAt = now + 500;
         break;
+      case 'warroom':
+        g.until = now + (g.incident ? between(rng, 35_000, 60_000) : between(rng, 22_000, 40_000));
+        g.nextAt = now + 600;
+        break;
       case 'talk':
         g.until = now + between(rng, 10_000, 18_000);
         g.nextAt = now + 400;
@@ -751,6 +777,9 @@ export class Social {
       case 'kitchen':
         [m.pose, m.held] = ['sit', m.carry === 'none' ? 'none' : m.carry];
         break;
+      case 'warroom':
+        [m.pose, m.held] = ['sit', 'none'];
+        break;
       case 'mirror':
         [m.pose, m.held] = ['groom', rng() < 0.5 ? 'lipstick' : 'comb'];
         break;
@@ -778,7 +807,88 @@ export class Social {
         return this.beatRps(g, now);
       case 'mirror':
         return this.beatMirror(g, now);
+      case 'warroom':
+        return this.beatWar(g, now);
     }
+  }
+
+  /** War room: cada um fala na sua vez (incidente ou planejamento), os outros concordam; no fim, o encerramento. */
+  private beatWar(g: Gathering, now: number): void {
+    const rng = g.rng;
+    const ms = active(g);
+    if (ms.length < 2 || now >= g.until) {
+      const c = this.charOf(this.randomOf(ms, rng));
+      if (c) this.say(c, L.pick(L.WAR.end, rng), now);
+      for (const m of ms) this.act(m, 'cheer', 'none', 1_200, now);
+      g.phase = 'final';
+      g.until = now + 1_600;
+      return;
+    }
+    g.nextAt = now + between(rng, 2_200, 3_800);
+    const pool = ms.filter((m) => m.id !== g.lastSpeaker);
+    const speaker = this.randomOf(pool, rng) ?? ms[0];
+    const c = this.charOf(speaker);
+    if (!c) return;
+    const sala = (g.incident && this.sim.rooms.get(g.incident)?.info.name) || this.roomName(c, rng);
+    const line = L.pick(g.incident ? L.WAR.incident : L.WAR.plan, rng, { nome: this.otherName(g, c, rng), sala }, g.lastLine);
+    g.lastSpeaker = speaker.id;
+    g.lastLine = line;
+    this.act(speaker, 'talk', 'none', 1_700, now);
+    this.say(c, line, now);
+    if (rng() < 0.5) {
+      const lc = this.charOf(this.randomOf(ms.filter((m) => m !== speaker), rng));
+      if (lc) g.pending.push({ id: lc.id, at: now + 1_000, text: L.pick(L.WAR.react, rng) });
+    }
+  }
+
+  // =================================================================== war room em incidente
+
+  /**
+   * Incidente numa sala de projeto (CI falhou ou alguém precisa de você): os colegas ociosos daquele projeto
+   * se reúnem na war room. Uma reunião por vez; a mesma sala só convoca de novo depois de WAR_COOLDOWN_MS.
+   */
+  checkIncidents(now: number): void {
+    for (const g of this.gatherings) if (g.kind === 'warroom' && g.phase !== 'ended') return;
+    const rooms = new Set<string>();
+    for (const fx of this.sim.roomFx.active.values()) if (fx.kind === 'alarm' && now < fx.end) rooms.add(fx.roomId);
+    for (const c of this.sim.chars.values()) if (!c.gone && !c.leaving && c.info.status === 'waiting') rooms.add(c.roomId);
+    for (const roomId of rooms) {
+      if (now < (this.warCooldown.get(roomId) ?? 0)) continue;
+      const crew = [...this.sim.chars.values()].filter((c) => c.roomId === roomId && this.canJoin(c, now));
+      if (crew.length < KINDS.warroom.min) continue;
+      const [host, ...rest] = crew;
+      this.warCooldown.set(roomId, now + WAR_COOLDOWN_MS);
+      if (this.start('warroom', host, rest, now, false, Math.min(rest.length, KINDS.warroom.max - 1), true, roomId)) return;
+    }
+  }
+
+  /**
+   * Placas de atividade das salas comuns (área -> texto: "☕ Papo rolando · 3 participantes"). A área de uma roda é a
+   * do lugar de quem a puxou; só conta quem já chegou. O texto e a prioridade vêm de social/signs.ts.
+   */
+  areaSigns(): Map<string, string> {
+    const views: GatheringView[] = [];
+    for (const g of this.gatherings) {
+      const ms = active(g);
+      const spot = ms.map((m) => (m.spot ? this.sim.spots.get(m.spot) : undefined)).find((s) => !!s);
+      views.push({
+        kind: g.kind,
+        phase: g.phase,
+        area: spot?.areaId ?? null,
+        arrived: ms.filter((m) => m.arrived).length,
+        incidentRoom: g.incident ? (this.sim.rooms.get(g.incident)?.info.name ?? null) : null,
+      });
+    }
+    return signsFor(views);
+  }
+
+  /** O telão da war room: alerta durante uma reunião de incidente, painéis no resto do tempo. */
+  warScreen(): 'alert' | 'plan' | null {
+    for (const g of this.gatherings) {
+      if (g.kind !== 'warroom' || (g.phase !== 'run' && g.phase !== 'final' && g.phase !== 'gather')) continue;
+      return g.incident ? 'alert' : 'plan';
+    }
+    return null;
   }
 
   private beatTv(g: Gathering, now: number): void {

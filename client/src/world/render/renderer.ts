@@ -7,6 +7,8 @@ import type { WorldAssets } from '../assets';
 import type { Camera } from '../camera';
 import { BUILDING_H, COL_W, CORE_COLS, CORRIDOR_Y } from '../constants';
 import { layoutExterior, slotShell, type ExteriorLayout, type SlotShell } from '../layout/exterior';
+import { WARROOM_ID } from '../layout/core';
+import { Flights } from './envelope';
 import { slotAt } from '../layout/geometry';
 import type { ExteriorProp } from '../layout/types';
 import { screenModeFor } from '../sim/behavior';
@@ -63,6 +65,8 @@ export interface HeadInfo {
 }
 
 const TV_MODES: ScreenMode[] = ['browser', 'idle', 'chat', 'code'];
+/** Telão da war room fora de incidente: painéis de trabalho. */
+const WAR_MODES: ScreenMode[] = ['tasks', 'progress', 'terminal', 'code'];
 /**
  * Boca do balde de pipoca (px relativos aos pés) na pose 'wait' sentada, por direção — segue o rig
  * da arte: abraçado no peito de frente, ao lado do quadril de costas, no colo de perfil.
@@ -97,6 +101,8 @@ export class Renderer {
   private icons: { x: number; y: number; name: IconName; bounce: number; alpha: number; badge: number }[] = [];
   /** Pipoca, confete e chuva (pool fixo). */
   readonly particles = new Particles();
+  /** Envelopes voando entre agentes (mensagens pelo Habblaud). */
+  private readonly envelopes = new Flights();
   /** Festa e alarme das salas (eventos do GitHub). */
   private readonly roomFx = new RoomFxRenderer();
   /** dt do frame atual (s), para as partículas emitidas durante o desenho. */
@@ -492,6 +498,7 @@ export class Renderer {
     this.roomFx.emit(this.particles, this.sim, now, dt, view);
     this.particles.update(dt);
     this.particles.draw(ctx, vx0, vy0, vx1, vy1, now);
+    this.drawEnvelopes(now);
 
     // ---- luz: noite, salas apagadas, brilhos
     this.night = this.lighting.night;
@@ -629,6 +636,13 @@ export class Renderer {
         const o = wallItemOrigin(w, s.base);
         ctx.drawImage(s.base.canvas, o.x, o.y + rise);
         const r = s.base.rects?.tv;
+        if (vis.id === WARROOM_ID) {
+          // telão da war room: alerta piscando no incidente; painéis (tarefas, progresso, terminal) no resto do tempo
+          const war = this.sim.social.warScreen();
+          const mode = war === 'alert' ? 'alert' : WAR_MODES[Math.floor(now / 7000) % WAR_MODES.length];
+          if (r) this.safe(() => this.art.drawScreen(ctx, { x: o.x + r.x, y: o.y + rise + r.y, w: r.w, h: r.h }, mode, now, w.seed));
+          return;
+        }
         // roda na TV do lounge: o programa escolhido (futebol, novela, desenho) ou o videogame
         const live = this.sim.social.tvScreen();
         const mode = live ? live.mode : TV_MODES[Math.floor(now / 9000) % TV_MODES.length];
@@ -997,9 +1011,40 @@ export class Renderer {
       else if (e.kind === 'coins') {
         const to = this.heads.get(e.toId);
         if (to && to.visible) this.particles.coins(head.x, head.y + 2, to.x, to.y + 2);
+      } else if (e.kind === 'envelope') {
+        const to = this.heads.get(e.toId);
+        if (to && to.visible) this.envelopes.add(e.id, { x: head.x, y: head.y - 6 }, { x: to.x, y: to.y - 6 }, now);
       }
     }
     fx.length = 0;
+  }
+
+  /** Envelopes das mensagens entre agentes (render/envelope.ts): carta em pixel art com selo, voando em arco. */
+  private drawEnvelopes(now: number): void {
+    if (!this.envelopes.size) return;
+    const { ctx } = this;
+    for (const p of this.envelopes.poses(now)) {
+      if (p.alpha <= 0) continue;
+      ctx.save();
+      ctx.globalAlpha *= p.alpha;
+      ctx.translate(Math.round(p.x), Math.round(p.y));
+      ctx.rotate(p.tilt);
+      // sombra, contorno, papel, aba (V) e o selo vermelho
+      ctx.fillStyle = 'rgba(20,24,36,0.25)';
+      ctx.fillRect(-5, 4, 11, 2);
+      ctx.fillStyle = '#5b4e3c';
+      ctx.fillRect(-6, -4, 12, 8);
+      ctx.fillStyle = '#fbf6ea';
+      ctx.fillRect(-5, -3, 10, 6);
+      ctx.fillStyle = '#c9bc9f';
+      for (let i = 0; i < 5; i++) {
+        ctx.fillRect(-5 + i, -3 + i, 1, 1);
+        ctx.fillRect(4 - i, -3 + i, 1, 1);
+      }
+      ctx.fillStyle = '#d0453b';
+      ctx.fillRect(-1, 0, 2, 2);
+      ctx.restore();
+    }
   }
 
   private reflectReq: CharacterFrameRequest = {

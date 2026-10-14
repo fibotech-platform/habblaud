@@ -8,7 +8,7 @@ export const CORRIDOR_ID = 'core:corredor';
 const TALL = ['ficus', 'palm', 'monstera', 'bonsai'] as const;
 const SMALL = ['fern', 'succulent', 'flower'] as const;
 /** Passadeira: uma família de cor só (azul-acinzentado discreto), com leve variação de tom. */
-const RUNNERS = ['#8b9bb0', '#8597ab', '#909fb3'] as const;
+const RUNNERS = ['#a9b5a6', '#a3b0a0', '#aebaab'] as const;
 
 export function layoutCorridor(cols: number): AreaLayout {
   const w = cols * COL_W;
@@ -31,6 +31,11 @@ export function layoutCorridor(cols: number): AreaLayout {
       const bench = b.furn('bench', x + 2, 0, undefined, { order: 0.5 });
       for (let i = 0; i < 2; i++) b.seat('bench', 'bench', x + 2 + i, 0, 'down', undefined, { noFurniture: true, furnitureId: bench });
       b.furn('plant_tall', x + 13, 0, 'monstera', { order: 0.5 });
+    } else if (c < CORE_COLS) {
+      // diante da war room: bebedouro (a porta da biblioteca fica livre ao sul)
+      b.furn('water_cooler', x + 13, 0, undefined, { order: 0.5 });
+      b.spot('water', x + 13, 1, 'up', { dy: -3 });
+      b.furn('plant_small', x + 2, 4, 'flower', { order: 0.5 });
     } else {
       // colunas de projeto alternam: bebedouro (pares) e banco de espera (ímpares)
       const k = c - CORE_COLS;

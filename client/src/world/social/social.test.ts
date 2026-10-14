@@ -8,6 +8,7 @@ import { Sim } from '../sim/sim';
 import { active, KINDS } from './gathering';
 import { CALLED } from './lines';
 import { SHELL_SOCIAL_MIN_MS } from './social';
+import { WARROOM_ID } from '../layout/core';
 import { START_COINS, TASK_REWARD, TURN_REWARD } from './wallet';
 
 const theme: RoomTheme = {
@@ -235,5 +236,36 @@ describe('vida social', () => {
     expect(info.traits.length).toBeGreaterThanOrEqual(2);
     expect(info.doing).toMatch(new RegExp(`^${KINDS.talk.emoji} ${KINDS.talk.label} com Caio`));
     expect(sim.social.info('ninguem')).toBeNull();
+  });
+});
+
+describe('war room', () => {
+  it('alguém do projeto precisa de você: os colegas ociosos da sala se reúnem na mesa da war room', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    const agents = [agent('ana', '/a', 'waiting'), agent('bia', '/a', 'idle'), agent('caio', '/a', 'idle'), agent('davi', '/a', 'idle'), agent('eva', '/b', 'idle')];
+    sim.applySnapshot(snap(ROOMS, agents), clock.now);
+    const war = () => [...sim.social.gatherings].find((g) => g.kind === 'warroom' && g.phase === 'run');
+    run(sim, clock, 300, () => !!war());
+    const g = war()!;
+    expect(g).toBeDefined();
+    expect(g.incident).toBe('/a');
+    expect(active(g).length).toBeGreaterThanOrEqual(KINDS.warroom.min);
+    for (const m of active(g)) {
+      expect(sim.chars.get(m.id)!.roomId).toBe('/a');
+      expect(sim.spots.get(m.spot!)!.kind).toBe('war_seat');
+    }
+    expect(sim.social.warScreen()).toBe('alert');
+    expect(sim.social.areaSigns().get(WARROOM_ID)).toBe(`🚨 Incidente em a · ${active(g).filter((m) => m.arrived).length} na mesa`);
+  });
+
+  it('sem incidente, ninguém é convocado (a war room só recebe reuniões de planejamento)', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    sim.applySnapshot(snap(ROOMS, [agent('bia', '/a', 'idle'), agent('caio', '/a', 'idle')]), clock.now);
+    for (let i = 0; i < 120; i++) {
+      run(sim, clock, 1);
+      for (const g of sim.social.gatherings) if (g.kind === 'warroom') expect(g.incident).toBeNull();
+    }
   });
 });

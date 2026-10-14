@@ -19,7 +19,7 @@
 // o auxiliar visto há até PRESENCE_MS). `delivered` = entrou na fila da sessão (entra quando ela ficar ociosa).
 import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
-import { describeMessage, MESSAGE_MAX } from '../../shared/messages';
+import { describeMessage, MESSAGE_MAX, senderHeader } from '../../shared/messages';
 import type { Activity, AgentInfo, InboxMessage, OutboxMessage } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
@@ -156,14 +156,21 @@ function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined
   return undefined;
 }
 
-/** Corpo de POST /api/messages: `{agentId, text}`. O texto não é alterado (nem aparado). */
-export function parseSend(raw: unknown): { agentId: string; text: string } {
+/**
+ * Corpo de POST /api/messages: `{agentId, text, from?}`. O texto não é alterado (nem aparado). `from` = id do agente
+ * que manda (mensagem entre agentes); ausente = mandada por você, pela página.
+ */
+export function parseSend(raw: unknown): { agentId: string; text: string; from?: string } {
   const r = rec(raw);
   const agentId = shortStr(r?.agentId, ID_MAX);
   if (!r || !agentId || typeof r.text !== 'string') throw new InvalidRequest('esperado {agentId, text}');
   if (!r.text.trim()) throw new InvalidRequest(tr('a mensagem está vazia'));
   if (r.text.length > MAX_TEXT) throw new InvalidRequest(tr('a mensagem passa de 20.000 caracteres'));
-  return { agentId, text: r.text };
+  if (r.from === undefined || r.from === null) return { agentId, text: r.text };
+  const from = shortStr(r.from, ID_MAX);
+  if (!from) throw new InvalidRequest(tr('remetente inválido: `from` é o id do agente que manda'));
+  if (from === agentId) throw new InvalidRequest(tr('um agente não manda mensagem para si mesmo'));
+  return { agentId, text: r.text, from };
 }
 
 /** Resultados de uma confirmação ({results: [{id, ok, error?}]}): os válidos, até ACK_MAX. */
@@ -257,7 +264,10 @@ export class MessageRegistry {
    * (too-many). Corpo inválido: lança InvalidRequest.
    */
   send(raw: unknown): SendResult {
-    const { agentId, text } = parseSend(raw);
+    const { agentId, text, from } = parseSend(raw);
+    // remetente declarado: precisa ser um agente que está no escritório (o nome dele vai no feed e no texto entregue)
+    const sender = from ? (this.opts.office.get(from) ?? this.opts.demoAgent?.(from)) : undefined;
+    if (from && !present(sender)) throw new InvalidRequest(tr('remetente desconhecido: {0} não está no escritório', [from]));
     const real = this.opts.office.get(agentId);
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
     const agent = real ?? demo;
@@ -270,7 +280,12 @@ export class MessageRegistry {
 
     const now = this.now();
     const id = `m-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
-    const entry: Entry = { msg: { id, agentId, status: 'queued', createdAt: now, updatedAt: now }, text, activity: describeMessage(text), target: agent.sessionId };
+    const entry: Entry = {
+      msg: { id, agentId, ...(sender ? { from: sender.id } : {}), status: 'queued', createdAt: now, updatedAt: now },
+      text: sender ? `${senderHeader(sender.name, sender.provider)}\n${text}` : text,
+      activity: describeMessage(text, sender?.name),
+      target: agent.sessionId,
+    };
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
     this.messages.set(id, entry);
@@ -490,7 +505,7 @@ export class MessageRegistry {
     if (status === 'delivered') {
       delete e.msg.error;
       // A do demo vai para o agente fictício (Office.deliverDemoMessage).
-      if (!e.demo) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
+      if (!e.demo) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity, ...(e.msg.from ? { from: e.msg.from } : {}) }, false);
     }
     e.text = '';
   }

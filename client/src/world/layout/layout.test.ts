@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { FURNITURE, TILE, type FurnitureKind, type RoomTheme } from '../../art/api';
-import { BUILDING_H, COL_W, CORRIDOR_Y, SOUTH_Y } from '../constants';
+import { BUILDING_H, COL_W, CORE_COLS, CORRIDOR_Y, SOUTH_Y } from '../constants';
 import { assembleBuilding, coreAreas } from './building';
 import { columnsFor, slotAt, slotColumn, slotRect, slotSide } from './geometry';
 import { layoutProjectRoom, roomVariant } from './room';
 import { layoutExterior, slotShell } from './exterior';
-import { RECEPTION_ID } from './core';
+import { RECEPTION_ID, WARROOM_SEATS } from './core';
 import type { AreaLayout } from './types';
 
 const theme: RoomTheme = {
@@ -23,31 +23,31 @@ function roomsFor(slots: number[]): AreaLayout[] {
 
 describe('mapeamento de slots', () => {
   it('coluna = núcleo + floor(slot/2); par = norte, ímpar = sul', () => {
-    expect(slotColumn(0)).toBe(2);
-    expect(slotColumn(1)).toBe(2);
-    expect(slotColumn(2)).toBe(3);
-    expect(slotColumn(7)).toBe(5);
+    expect(slotColumn(0)).toBe(CORE_COLS);
+    expect(slotColumn(1)).toBe(CORE_COLS);
+    expect(slotColumn(2)).toBe(CORE_COLS + 1);
+    expect(slotColumn(7)).toBe(CORE_COLS + 3);
     expect(slotSide(0)).toBe('north');
     expect(slotSide(1)).toBe('south');
     expect(slotSide(6)).toBe('north');
-    expect(slotAt(3, 'south')).toBe(3);
+    expect(slotAt(CORE_COLS + 1, 'south')).toBe(3);
     expect(slotAt(slotColumn(9), slotSide(9))).toBe(9);
   });
 
   it('retângulos das salas não se sobrepõem e respeitam o corredor', () => {
     const a = slotRect(0);
     const b = slotRect(1);
-    expect(a).toEqual({ x: 2 * COL_W, y: 0, w: COL_W, h: 12 });
+    expect(a).toEqual({ x: CORE_COLS * COL_W, y: 0, w: COL_W, h: 12 });
     expect(b.y).toBe(SOUTH_Y);
     expect(a.y + a.h).toBe(CORRIDOR_Y);
     expect(b.y + b.h).toBe(BUILDING_H);
   });
 
   it('largura do prédio: núcleo + maior coluna usada + 1 (mínimo 1 coluna de projeto)', () => {
-    expect(columnsFor([])).toBe(3);
-    expect(columnsFor([0, 1])).toBe(3);
-    expect(columnsFor([5])).toBe(5);
-    expect(columnsFor([2, 11])).toBe(8);
+    expect(columnsFor([])).toBe(CORE_COLS + 1);
+    expect(columnsFor([0, 1])).toBe(CORE_COLS + 1);
+    expect(columnsFor([5])).toBe(CORE_COLS + 3);
+    expect(columnsFor([2, 11])).toBe(CORE_COLS + 6);
   });
 });
 
@@ -234,5 +234,16 @@ describe('itens de parede', () => {
     const restroom = coreAreas().find((a) => a.kind === 'restroom')!;
     expect(restroom.wallItems.some((w) => w.kind === 'door_frame')).toBe(true);
     for (const room of roomsFor([1, 3, 7])) expect(room.wallItems.some((w) => w.kind === 'door_frame'), room.id).toBe(true);
+  });
+});
+
+describe('war room e biblioteca', () => {
+  it('war room: mesa de 10 lugares, aberta para o corredor; biblioteca com porta e estantes', () => {
+    const war = coreAreas().find((a) => a.kind === 'warroom')!;
+    expect(war.spots.filter((s) => s.kind === 'war_seat')).toHaveLength(WARROOM_SEATS);
+    expect(war.wallItems.some((w) => w.kind === 'tv')).toBe(true);
+    const lib = coreAreas().find((a) => a.kind === 'library')!;
+    expect(lib.door).toBeDefined();
+    expect(lib.spots.filter((s) => s.kind === 'shelf').length).toBeGreaterThanOrEqual(4);
   });
 });

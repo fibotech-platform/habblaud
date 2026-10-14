@@ -115,6 +115,8 @@ export class Character {
   reactUntil = 0;
   /** `at` da última Activity 'ShellDone' já tratada (as anteriores à chegada não comemoram). */
   shellDoneAt = 0;
+  /** `at` da última mensagem de outro agente já tratada (envelope voando; as anteriores à chegada não voam). */
+  messageAt = 0;
   /** Render: próxima pipoca que pula do balde (epoch ms). */
   popcornAt = 0;
 

@@ -1,7 +1,8 @@
 // Simulação do escritório: concilia snapshots do servidor com os personagens e salas do mundo,
 // planeja comportamentos e executa as filas de passos a cada frame.
 import { partsKey } from '../../../../shared/appearance';
-import type { AgentInfo, OfficeSnapshot, Provider, RoomInfo } from '../../../../shared/types';
+import type { Activity, AgentInfo, OfficeSnapshot, Provider, RoomInfo } from '../../../../shared/types';
+import { MESSAGE_TOOL } from '../../../../shared/messages';
 import type { ArtModule, Dir, RoomTheme } from '../../art/api';
 import type { WorldOptions } from '../api';
 import { COL_W, COMPACT_DELAY_MS, DISMANTLE_DELAY_MS, FOOT_DX, FOOT_DY, MISSING_DEBOUNCE_MS, RUN_SPEED, TILE, WALK_SPEED } from '../constants';
@@ -44,7 +45,9 @@ import { tr } from '../../../../shared/i18n';
 export type WorldEffect =
   | { kind: 'confetti'; charId: string; at: number }
   | { kind: 'coins'; charId: string; toId: string; at: number }
-  | { kind: 'sparkle'; charId: string; at: number };
+  | { kind: 'sparkle'; charId: string; at: number }
+  // mensagem de outro agente pelo Habblaud: envelope voando de quem mandou (charId) para quem recebeu (toId)
+  | { kind: 'envelope'; id: string; charId: string; toId: string; at: number };
 
 export { SHELL_DONE_TOOL } from './shell';
 /** Comemoração (shell concluído) e lamento (falhou/morto). */
@@ -286,6 +289,12 @@ export class Sim {
       ch.shellDoneAt = sd.at;
       this.reactShellDone(ch, !sd.error, now);
     }
+    // mensagem de outro agente: envelope voando do remetente até aqui (uma vez por mensagem)
+    const msg = latestAgentMessage(a);
+    if (msg && msg.at > ch.messageAt) {
+      ch.messageAt = msg.at;
+      if (msg.from && this.chars.has(msg.from)) this.pushEffect({ kind: 'envelope', id: msg.id, charId: msg.from, toId: ch.id, at: now });
+    }
     // shells mudam sem mudar o status (ex.: comando em primeiro plano começou/terminou)
     if (prevStatus !== a.status || hadShells || !!a.shells?.length || ch.mode === 'shell' || this.forcedOffline.has(ch.id)) this.refreshMode(ch);
     this.refreshShell(ch, now);
@@ -399,6 +408,7 @@ export class Sim {
     const ch = new Character(a, appearance);
     ch.lastActivityId = a.activity?.id ?? null;
     ch.shellDoneAt = latestShellDone(a)?.at ?? 0;
+    ch.messageAt = latestAgentMessage(a)?.at ?? 0;
     this.chars.set(a.id, ch);
     if (first) return ch;
     // chegada pelo elevador
@@ -1788,4 +1798,20 @@ export class Sim {
         break;
     }
   }
+}
+
+/**
+ * A mensagem mais recente que outro agente mandou a este pelo Habblaud (Activity com `from`, na atual ou nas
+ * recentes), ou null. Sem alocação.
+ */
+export function latestAgentMessage(a: { activity?: Activity; recent?: readonly Activity[] }): Activity | null {
+  let best: Activity | null = a.activity?.tool === MESSAGE_TOOL && a.activity.from ? a.activity : null;
+  const recent = a.recent;
+  if (recent) {
+    for (let i = recent.length - 1; i >= 0; i--) {
+      const r = recent[i];
+      if (r.tool === MESSAGE_TOOL && r.from && (!best || r.at > best.at)) best = r;
+    }
+  }
+  return best;
 }

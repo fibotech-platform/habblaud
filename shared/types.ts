@@ -86,6 +86,8 @@ export interface Activity {
   at: number;
   durationMs?: number;
   error?: boolean;
+  /** Mensagem pelo Habblaud vinda de outro agente: AgentInfo.id de quem mandou (declarado por ele). */
+  from?: string;
   /** Perguntas completas de um AskUserQuestion (kind 'ask'), para o escritório mostrar as opções. */
   questions?: AskQuestion[];
 }
@@ -683,6 +685,8 @@ export interface OutboxMessage {
   id: string;
   /** AgentInfo.id do destinatário (sempre um principal). */
   agentId: string;
+  /** AgentInfo.id de outro agente que mandou a mensagem (declarado por ele; ausente = mandada por você). */
+  from?: string;
   status: OutboxStatus;
   error?: string;
   createdAt: number;

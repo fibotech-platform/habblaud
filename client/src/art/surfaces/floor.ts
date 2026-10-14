@@ -180,7 +180,7 @@ function rgba(c: string): RGBA {
   return parseColor(c);
 }
 
-const WOOD_TONES = ['#c99668', '#c48f61', '#cf9f72', '#c6925f'] as const;
+const WOOD_TONES = ['#dcc09a', '#d7b993', '#e0c5a0', '#d9bc95'] as const;
 /** [tom][0 normal, 1 topo, 2 base, 3 veio, 4 emenda, 5 após emenda, 6 nó]. */
 const WOOD: readonly (readonly RGBA[])[] = WOOD_TONES.map((t) =>
   [t, shade(t, 0.03), shade(t, -0.075), shade(t, -0.03), shade(t, -0.1), shade(t, 0.03), shade(t, -0.12)].map(rgba),

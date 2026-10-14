@@ -82,6 +82,16 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   return { port, once };
 }
 
+/**
+ * Caminho como este computador o vê. Com o Habblaud no Docker do WSL e o auxiliar no Windows, o servidor manda as
+ * pastas como o Linux as vê (/mnt/c/Users/...); aqui elas viram C:\Users\.... Fora do Windows, nada muda.
+ */
+export function hostPath(p: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'win32') return p;
+  const m = /^\/mnt\/([a-zA-Z])(?:\/(.*))?$/.exec(p);
+  return m ? `${m[1].toUpperCase()}:\\${(m[2] ?? '').replace(/\//g, '\\')}` : p;
+}
+
 function isDir(p: string): boolean {
   try {
     return statSync(p).isDirectory();
@@ -100,7 +110,7 @@ export function checkMessage(raw: unknown): BridgeMessage | { id?: string; error
   if (!r || !id) return { error: tr('mensagem sem id') };
   if (typeof r.text !== 'string' || !r.text.trim()) return { id, error: tr('mensagem vazia') };
   if (typeof r.thread !== 'string' || !THREAD_ID.test(r.thread)) return { id, error: tr('id de thread do Codex inválido') };
-  const home = typeof r.codexHome === 'string' ? r.codexHome : '';
+  const home = typeof r.codexHome === 'string' ? hostPath(r.codexHome) : '';
   if (!home || !isAbsolute(home) || !isDir(home) || isClaudeDir(home)) return { id, error: tr('a pasta do Codex {0} não existe neste computador', [home || tr('(vazia)')]) };
   return { id, account: typeof r.account === 'string' ? r.account : '', codexHome: resolve(home), thread: r.thread, text: r.text };
 }
@@ -228,7 +238,7 @@ export async function spawnRound(
   for (const raw of list) {
     const id = typeof rec(raw)?.id === 'string' ? (rec(raw)!.id as string) : '';
     if (!id) continue;
-    const req = parseSpawn(raw);
+    const req = parseSpawn(typeof rec(raw)?.folder === 'string' ? { ...rec(raw), folder: hostPath(rec(raw)!.folder as string) } : raw);
     const files = checkFiles(rec(raw)?.files);
     const bad = 'error' in req ? req.error : 'error' in files ? files.error : problem(req.folder);
     if (bad || 'error' in req || 'error' in files) {
@@ -304,7 +314,7 @@ export async function filesRound(
     const r = rec(raw);
     const id = typeof r?.id === 'string' ? r.id : '';
     if (!id) continue;
-    const checked = check(typeof r?.path === 'string' ? r.path : '');
+    const checked = check(typeof r?.path === 'string' ? hostPath(r.path) : '');
     const c = 'error' in checked || !opts.inside || opts.inside(checked.path) ? checked : { error: tr('fora das pastas de projeto conhecidas') };
     if ('error' in c) {
       results.push({ id, ok: false, error: c.error });

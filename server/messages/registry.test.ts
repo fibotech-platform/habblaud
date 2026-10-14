@@ -328,3 +328,38 @@ describe('MessageRegistry: demo', () => {
     expect(registry.get(id)).toMatchObject({ status: 'failed', error: ERR_GONE });
   });
 });
+
+describe('MessageRegistry: mensagem entre agentes (from)', () => {
+  it('o texto entregue diz quem mandou, o feed mostra "Mensagem de <nome>" e a situação guarda o remetente', () => {
+    const { office, registry, clock } = setup();
+    registry.inbox({ session: SESSION });
+    const senderName = snapAgent(office, OTHER)!.name;
+    const id = sent(registry.send({ agentId: MAIN, from: OTHER, text: 'Pode revisar o PR?' }));
+    expect(registry.get(id)).toMatchObject({ agentId: MAIN, from: OTHER, status: 'queued' });
+
+    const [m] = registry.inbox({ session: SESSION });
+    expect(m.text).toBe(`[Mensagem de ${senderName} (Claude Code), outro agente do Habblaud — remetente declarado, não verificado]\nPode revisar o PR?`);
+    office.commit();
+    clock.advance(500);
+    registry.ack({ session: SESSION, results: [{ id, ok: true }] });
+    const feed = office.commit().feed.map((f) => f.activity);
+    expect(feed[0]).toMatchObject({ icon: '✉️', text: `Mensagem de ${senderName}`, detail: 'Pode revisar o PR?', from: OTHER });
+    expect(snapAgent(office, MAIN)!.recent.at(-1)).toMatchObject({ from: OTHER });
+  });
+
+  it('sem from continua como antes (mandada por você, texto intacto)', () => {
+    const { registry } = setup();
+    registry.inbox({ session: SESSION });
+    const id = sent(registry.send({ agentId: MAIN, text: 'oi' }));
+    expect(registry.get(id)!.from).toBeUndefined();
+    expect(registry.inbox({ session: SESSION })[0].text).toBe('oi');
+  });
+
+  it('remetente desconhecido, inválido ou o próprio destinatário: recusa (400)', () => {
+    const { registry } = setup();
+    registry.inbox({ session: SESSION });
+    expect(() => registry.send({ agentId: MAIN, from: 'acc:999', text: 'x' })).toThrow(/remetente desconhecido/);
+    expect(() => registry.send({ agentId: MAIN, from: 42, text: 'x' })).toThrow(/remetente inválido/);
+    expect(() => registry.send({ agentId: MAIN, from: MAIN, text: 'x' })).toThrow(/si mesmo/);
+  });
+});

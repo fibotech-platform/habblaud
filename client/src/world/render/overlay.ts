@@ -51,6 +51,8 @@ const CORE_NAMES: Record<string, string> = {
   'core:banheiros': tr('Banheiros'),
   'core:copa': tr('Copa'),
   'core:lounge': tr('Lounge'),
+  'core:warroom': tr('War Room'),
+  'core:biblioteca': tr('Biblioteca'),
 };
 
 /** 'shell' = espera de shell: balão escuro de terminal com texto verde. 'say' = fala das rodas (papo, torcida, apostas). */
@@ -306,6 +308,7 @@ export class Overlay {
     // placas e pílulas primeiro: são fixas e grandes; balões e etiquetas desviam delas
     this.drawRoomTexts(now, zoom);
     this.drawFxBanners(now, zoom);
+    this.drawActivitySigns(zoom);
 
     // ---- coleta balões e etiquetas dos personagens visíveis
     const items = this.items;
@@ -568,6 +571,39 @@ export class Overlay {
     }
     ctx.restore();
     this.place(x, y, w, h);
+  }
+
+  /**
+   * Placa de atividade das salas comuns ("☕ Papo rolando · 3 participantes", "🚨 Incidente em loja · 4 na mesa"):
+   * no alto do piso, só com zoom suficiente para ler. Incidente em vermelho; o resto em tom neutro.
+   */
+  private drawActivitySigns(zoom: number): void {
+    if (zoom < 1.4) return;
+    const signs = this.sim.social.areaSigns();
+    if (!signs.size) return;
+    const { ctx, camera } = this;
+    for (const [areaId, label] of signs) {
+      const vis = this.renderer.areas.get(areaId);
+      if (!vis || vis.room) continue;
+      const r = vis.layout.rect;
+      const cx = this.sx((r.x + r.w / 2) * TILE);
+      const top = this.sy((r.y + 2) * TILE) + 4;
+      if (cx < -200 || cx > camera.viewW + 200 || top < -40 || top > camera.viewH + 40) continue;
+      const text = this.fit(CORE_FONT, label, r.w * TILE * zoom - 24);
+      if (text.length < 3) continue;
+      const w = Math.round(this.measure(CORE_FONT, text) + 16);
+      const h = 18;
+      const x = Math.round(cx - w / 2);
+      const y = Math.round(top);
+      ctx.fillStyle = label.startsWith('🚨') ? 'rgba(178,42,42,0.88)' : 'rgba(22,27,40,0.72)';
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 6);
+      ctx.fill();
+      ctx.font = CORE_FONT;
+      ctx.fillStyle = '#f4f6fb';
+      ctx.fillText(text, x + 8, y + h / 2 + 1);
+      this.place(x, y, w, h);
+    }
   }
 
   private drawCorePill(name: string, cx: number, cy: number, maxW: number): void {

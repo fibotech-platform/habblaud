@@ -12,9 +12,18 @@ const DETAIL_MAX = 300;
 
 /**
  * Atividade "Mensagem pelo Habblaud" de uma mensagem entregue à sessão (entrou nela ou na fila dela: não quer dizer
- * que o agente já leu).
+ * que o agente já leu). `from` = nome do agente que mandou (declarado por ele, não verificado): "Mensagem de Bruno".
  */
-export function describeMessage(text: string): ActivityDescription & { tool: string } {
+export function describeMessage(text: string, from?: string): ActivityDescription & { tool: string } {
   const detail = truncate(maskSecrets(text.slice(0, DETAIL_MAX * 4)), DETAIL_MAX);
-  return { kind: 'communicate', icon: '✉️', text: tr('Mensagem pelo Habblaud'), tool: MESSAGE_TOOL, ...(detail ? { detail } : {}) };
+  const title = from ? tr('Mensagem de {0}', [from]) : tr('Mensagem pelo Habblaud');
+  return { kind: 'communicate', icon: '✉️', text: title, tool: MESSAGE_TOOL, ...(detail ? { detail } : {}) };
+}
+
+/**
+ * Cabeçalho do texto entregue quando a mensagem vem de outro agente: quem recebe sabe que não foi você que digitou.
+ * O remetente é declarado por quem mandou (o Habblaud não tem como verificar).
+ */
+export function senderHeader(name: string, provider: string | undefined): string {
+  return tr('[Mensagem de {0} ({1}), outro agente do Habblaud — remetente declarado, não verificado]', [name, provider === 'codex' ? 'Codex' : 'Claude Code']);
 }

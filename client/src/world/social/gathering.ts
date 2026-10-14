@@ -5,7 +5,7 @@ import type { Dir, HeldItem, Pose } from '../../art/api';
 import { hasTrait, type Bond, type Persona, type TraitId } from './persona';
 import { tr } from '../../../../shared/i18n';
 
-export type GatherKind = 'tv' | 'videogame' | 'arcade' | 'pingpong' | 'kitchen' | 'talk' | 'rps' | 'mirror';
+export type GatherKind = 'tv' | 'videogame' | 'arcade' | 'pingpong' | 'kitchen' | 'talk' | 'rps' | 'mirror' | 'warroom';
 export type Role = 'player' | 'watcher' | 'talker';
 export type Program = 'futebol' | 'novela' | 'desenho';
 export type Gesture = 'rock' | 'paper' | 'scissors';
@@ -36,6 +36,7 @@ export const KINDS: Readonly<Record<GatherKind, KindInfo>> = {
   talk: { label: tr('Conversando'), emoji: '💬', min: 2, max: 2 },
   rps: { label: tr('Jokenpô'), emoji: '✊', min: 2, max: 4, match: true },
   mirror: { label: tr('Se arrumando no espelho'), emoji: '💄', min: 1, max: 2, solo: true },
+  warroom: { label: tr('Na war room'), emoji: '🚨', min: 2, max: 10 },
 };
 
 export interface Member {
@@ -91,6 +92,8 @@ export interface Gathering {
   pool: string[];
   lastLine: string | null;
   lastSpeaker: string | null;
+  /** War room: sala do projeto em incidente que convocou a reunião (null = reunião de planejamento). */
+  incident: string | null;
   /** Falas agendadas (ex.: o "bora!" de quem foi convidado, um pouco depois do convite). */
   pending: { id: string; at: number; text: string }[];
 }
@@ -118,6 +121,7 @@ const BASE: Readonly<Record<GatherKind, number>> = {
   talk: 8,
   rps: 8,
   mirror: 2,
+  warroom: 3,
 };
 
 /** Quanto cada traço multiplica a vontade de cada roda. */

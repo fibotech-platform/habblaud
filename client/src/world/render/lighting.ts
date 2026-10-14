@@ -250,10 +250,10 @@ export class Lighting {
     }
   }
 
-  /** Copa, lounge e banheiros: luz por presença. Recepção e corredor ficam sempre acesos. */
+  /** Copa, lounge, banheiros, war room e biblioteca: luz por presença. Recepção e corredor ficam sempre acesos. */
   private presenceLit(vis: AreaVis): boolean {
     const kind = vis.layout.kind;
-    return kind === 'cafe' || kind === 'lounge' || kind === 'restroom';
+    return kind === 'cafe' || kind === 'lounge' || kind === 'restroom' || kind === 'warroom' || kind === 'library';
   }
 
   private someoneIn(r: { x: number; y: number; w: number; h: number }): boolean {

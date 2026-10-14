@@ -202,6 +202,11 @@ const CHAIR_COLORS: Readonly<Record<string, string>> = {
   red: '#b44a4a',
   green: '#3f8a62',
   gray: '#8b929e',
+  sage: '#8ea687',
+  oat: '#cdbfa6',
+  dusty: '#7f98b0',
+  charcoal: '#5a5f66',
+  terracotta: '#bf7d62',
 };
 
 function chairRamp(variant: string | undefined): Ramp {

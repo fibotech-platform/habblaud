@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { checkMessage, dictationRound, filesRound, httpPost, parseArgs, round, spawnRound, type Post } from '../../scripts/codex-bridge';
+import { checkMessage, dictationRound, hostPath, filesRound, httpPost, parseArgs, round, spawnRound, type Post } from '../../scripts/codex-bridge';
 import { spawnUrl } from '../spawn/spawn';
 import { AccountsService } from '../accounts/service';
 import { createApiHandler } from '../http/app';
@@ -155,6 +155,14 @@ describe('rotas do auxiliar do Codex', () => {
     mkdirSync(join(claude, 'projects'), { recursive: true });
     expect(checkMessage({ ...ok, codexHome: claude })).toMatchObject({ error: expect.stringMatching(/não existe/) });
     expect(checkMessage({ text: 'x' })).toEqual({ error: 'mensagem sem id' });
+  });
+
+  it('hostPath: no Windows, caminhos do WSL (/mnt/c/...) viram C:\\...; fora dele, nada muda', () => {
+    expect(hostPath('/mnt/c/Users/Danilo/.codex', 'win32')).toBe('C:\\Users\\Danilo\\.codex');
+    expect(hostPath('/mnt/d', 'win32')).toBe('D:\\');
+    expect(hostPath('C:\\Users\\Danilo', 'win32')).toBe('C:\\Users\\Danilo');
+    expect(hostPath('/home/danilo/.codex', 'win32')).toBe('/home/danilo/.codex');
+    expect(hostPath('/mnt/c/Users/Danilo/.codex', 'linux')).toBe('/mnt/c/Users/Danilo/.codex');
   });
 
   it('parseArgs', () => {
